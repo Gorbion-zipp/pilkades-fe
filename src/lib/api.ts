@@ -1,6 +1,6 @@
 import axios from 'axios'
 
-export const TOKEN_KEY = 'pemira_token'
+export const TOKEN_KEY = 'pilkades_token'
 
 const api = axios.create({
     baseURL: import.meta.env.VITE_API_URL ?? 'http://localhost:8000/api/v1',
@@ -24,7 +24,7 @@ api.interceptors.response.use(
     (error) => {
         if (error.response?.status === 401) {
             localStorage.removeItem(TOKEN_KEY)
-            localStorage.removeItem('pemira_user')
+            localStorage.removeItem('pilkades_user')
         }
 
         return Promise.reject(error)

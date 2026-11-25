@@ -1,7 +1,7 @@
 import { ThemeToggle } from '@/components/theme-toggle'
-import { useAuth, type Voter } from '@/context/auth-context'
+import { useAuth } from '@/context/auth-context'
 import api, { getErrorMessage } from '@/lib/api'
-import { AlertTriangle, ArrowLeft, Loader2, ScrollText, ShieldCheck, Vote, X } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, CheckCircle2, Loader2, ScrollText, ShieldCheck, Vote, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
@@ -9,45 +9,77 @@ interface Candidate {
     id: string
     candidate_number: string
     name: string
-    vice_name: string
+    vice_name: string | null
+    party_name?: string | null
     vision_mission: string | null
     photo_url: string | null
 }
 
-export default function VotePage() {
-    const { user, refreshVoter } = useAuth()
-    const navigate = useNavigate()
-    const voter = user?.data as Voter
+interface BallotElection {
+    election_id: string
+    election_round_id: string | null
+    name: string
+    position_type: string
+    position_label: string
+    region_name: string | null
+    round_number: number
+    has_voted: boolean
+    candidates: Candidate[]
+}
 
-    const [candidates, setCandidates] = useState<Candidate[]>([])
+export default function VotePage() {
+    const { refreshVoter } = useAuth()
+    const navigate = useNavigate()
+
+    const [ballots, setBallots] = useState<BallotElection[]>([])
+    const [currentIndex, setCurrentIndex] = useState(0)
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState('')
+    const [stepNotice, setStepNotice] = useState('')
 
     const [selected, setSelected] = useState<Candidate | null>(null)
     const [visionCandidate, setVisionCandidate] = useState<Candidate | null>(null)
     const [submitting, setSubmitting] = useState(false)
 
     useEffect(() => {
-        if (voter.has_voted) {
-            navigate('/dashboard', { replace: true })
-            return
-        }
-
-        api.get('/vote/candidates')
-            .then((response) => setCandidates(response.data.candidates))
-            .catch((err) => setError(getErrorMessage(err, 'Gagal memuat data paslon.')))
+        api.get('/vote/ballots')
+            .then((response) => {
+                const pending = (response.data.elections as BallotElection[] | undefined)?.filter((e) => !e.has_voted) ?? []
+                if (pending.length === 0) {
+                    navigate('/dashboard', { replace: true })
+                    return
+                }
+                setBallots(pending)
+            })
+            .catch((err) => setError(getErrorMessage(err, 'Gagal memuat surat suara.')))
             .finally(() => setLoading(false))
-    }, [voter.has_voted, navigate])
+    }, [navigate])
+
+    const currentBallot = ballots[currentIndex] ?? null
+    const candidates = currentBallot?.candidates ?? []
 
     const handleConfirmVote = async () => {
-        if (!selected) return
+        if (!selected || !currentBallot) return
 
         setSubmitting(true)
+        setError('')
 
         try {
-            await api.post('/vote', { candidate_id: selected.id })
-            await refreshVoter()
-            navigate('/vote/success', { state: { candidateName: selected.name } })
+            await api.post('/vote', {
+                candidate_id: selected.id,
+                ...(currentBallot.election_round_id ? { election_round_id: currentBallot.election_round_id } : {}),
+            })
+
+            const nextIndex = currentIndex + 1
+            if (nextIndex < ballots.length) {
+                setStepNotice(`Suara untuk "${currentBallot.name}" berhasil dicatat. Silakan lanjut ke pemilihan berikutnya.`)
+                setSelected(null)
+                setCurrentIndex(nextIndex)
+                window.scrollTo({ top: 0, behavior: 'smooth' })
+            } else {
+                await refreshVoter()
+                navigate('/vote/success', { state: { candidateName: selected.name } })
+            }
         } catch (err) {
             setError(getErrorMessage(err, 'Gagal mengirim suara. Silakan coba lagi.'))
             setSelected(null)
@@ -71,8 +103,14 @@ export default function VotePage() {
                         <ArrowLeft className="h-5 w-5" />
                     </button>
                     <div>
-                        <h1 className="text-lg leading-none font-bold tracking-tight text-slate-900 dark:text-white">Bilik Suara Digital</h1>
-                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Pilih Pasangan Calon Kepala Desa</p>
+                        <h1 className="text-lg leading-none font-bold tracking-tight text-slate-900 dark:text-white">
+                            Bilik Suara Digital
+                        </h1>
+                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                            {currentBallot
+                                ? `${currentBallot.position_label} • Putaran ${currentBallot.round_number}`
+                                : 'Memuat surat suara...'}
+                        </p>
                     </div>
                 </div>
 
@@ -86,10 +124,41 @@ export default function VotePage() {
             </header>
 
             <main className="z-10 mx-auto flex w-full max-w-5xl flex-1 flex-col justify-center px-4 py-8">
+                {ballots.length > 1 && currentBallot && (
+                    <div className="mx-auto mb-6 flex w-full max-w-2xl items-center justify-between rounded-2xl border border-blue-200 bg-blue-50/70 px-4 py-3 text-xs dark:border-blue-900 dark:bg-blue-950/40">
+                        <span className="font-bold text-blue-700 dark:text-blue-300">
+                            Pemilihan {currentIndex + 1} dari {ballots.length}
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                            {ballots.map((b, idx) => (
+                                <span
+                                    key={b.election_round_id ?? b.election_id}
+                                    className={`h-2 rounded-full transition-all ${
+                                        idx < currentIndex
+                                            ? 'w-5 bg-emerald-500'
+                                            : idx === currentIndex
+                                              ? 'w-8 bg-blue-600'
+                                              : 'w-5 bg-slate-300 dark:bg-slate-700'
+                                    }`}
+                                />
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+                {stepNotice && (
+                    <div className="mx-auto mb-6 flex w-full max-w-3xl items-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-xs font-medium text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">
+                        <CheckCircle2 className="h-4 w-4 shrink-0" />
+                        <span>{stepNotice}</span>
+                    </div>
+                )}
+
                 <div className="mb-10 text-center">
-                    <h2 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">Gunakan Hak Pilih Anda</h2>
+                    <h2 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
+                        {currentBallot?.name || 'Gunakan Hak Pilih Anda'}
+                    </h2>
                     <p className="mx-auto mt-2 max-w-lg text-sm text-slate-600 dark:text-slate-400">
-                        Klik pada kartu Pasangan Calon di bawah ini untuk menentukan pilihan Anda.
+                        Klik pada kartu Pasangan Calon / Caleg di bawah ini untuk menentukan pilihan Anda.
                     </p>
                 </div>
 
@@ -108,7 +177,9 @@ export default function VotePage() {
                 {!loading && candidates.length === 0 && (
                     <div className="mx-auto w-full max-w-md rounded-3xl border border-dashed border-slate-300 bg-white p-8 text-center dark:border-slate-700 dark:bg-slate-900">
                         <Vote className="mx-auto h-8 w-8 text-slate-400" />
-                        <p className="mt-2 text-sm font-semibold text-slate-700 dark:text-slate-200">Belum ada pasangan calon</p>
+                        <p className="mt-2 text-sm font-semibold text-slate-700 dark:text-slate-200">
+                            Belum ada pasangan calon
+                        </p>
                         <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Hubungi panitia pemilihan.</p>
                     </div>
                 )}
@@ -135,8 +206,19 @@ export default function VotePage() {
                                     </span>
                                 </div>
 
-                                <h3 className="text-xl leading-tight font-bold text-slate-900 dark:text-white">{cand.name}</h3>
-                                <p className="mt-0.5 text-xs font-medium text-blue-600 dark:text-blue-400">Wakil: {cand.vice_name}</p>
+                                <h3 className="text-xl leading-tight font-bold text-slate-900 dark:text-white">
+                                    {cand.name}
+                                </h3>
+                                {cand.vice_name && (
+                                    <p className="mt-0.5 text-xs font-medium text-blue-600 dark:text-blue-400">
+                                        Wakil: {cand.vice_name}
+                                    </p>
+                                )}
+                                {cand.party_name && (
+                                    <p className="mt-0.5 text-xs font-medium text-indigo-600 dark:text-indigo-400">
+                                        Partai: {cand.party_name}
+                                    </p>
+                                )}
 
                                 {cand.vision_mission && (
                                     <button
@@ -158,7 +240,7 @@ export default function VotePage() {
                                 className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-600/20 transition hover:bg-blue-500"
                             >
                                 <Vote className="h-4 w-4" />
-                                <span>Pilih Paslon {cand.candidate_number}</span>
+                                <span>Pilih No. {cand.candidate_number}</span>
                             </button>
                         </div>
                     ))}
@@ -188,14 +270,21 @@ export default function VotePage() {
                                 </div>
                                 <div className="min-w-0">
                                     <span className="rounded-lg bg-blue-600 px-2.5 py-1 text-[10px] font-extrabold text-white">
-                                        PASLON NO. {visionCandidate.candidate_number}
+                                        NO. {visionCandidate.candidate_number}
                                     </span>
                                     <h3 className="mt-2 truncate text-lg leading-tight font-bold text-slate-900 dark:text-white">
                                         {visionCandidate.name}
                                     </h3>
-                                    <p className="mt-0.5 truncate text-xs font-medium text-blue-600 dark:text-blue-400">
-                                        Wakil: {visionCandidate.vice_name}
-                                    </p>
+                                    {visionCandidate.vice_name && (
+                                        <p className="mt-0.5 truncate text-xs font-medium text-blue-600 dark:text-blue-400">
+                                            Wakil: {visionCandidate.vice_name}
+                                        </p>
+                                    )}
+                                    {visionCandidate.party_name && (
+                                        <p className="mt-0.5 truncate text-xs font-medium text-indigo-600 dark:text-indigo-400">
+                                            Partai: {visionCandidate.party_name}
+                                        </p>
+                                    )}
                                 </div>
                             </div>
 
@@ -213,7 +302,10 @@ export default function VotePage() {
                                 <ScrollText className="h-4 w-4 text-blue-600 dark:text-blue-400" />
                                 <h4 className="text-sm font-bold text-slate-900 dark:text-white">Visi &amp; Misi</h4>
                             </div>
-                            <div className="rich-text-view text-sm" dangerouslySetInnerHTML={{ __html: visionCandidate.vision_mission ?? '' }} />
+                            <div
+                                className="rich-text-view text-sm"
+                                dangerouslySetInnerHTML={{ __html: visionCandidate.vision_mission ?? '' }}
+                            />
                         </div>
 
                         <div className="flex gap-3 p-6 pt-0">
@@ -234,7 +326,7 @@ export default function VotePage() {
                                 className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-blue-600 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-600/25 transition hover:bg-blue-500"
                             >
                                 <Vote className="h-4 w-4" />
-                                <span>Pilih Paslon {visionCandidate.candidate_number}</span>
+                                <span>Pilih No. {visionCandidate.candidate_number}</span>
                             </button>
                         </div>
                     </div>
@@ -254,7 +346,7 @@ export default function VotePage() {
                         <p className="mb-6 text-sm leading-relaxed text-slate-600 dark:text-slate-300">
                             Apakah Anda yakin ingin memilih{' '}
                             <strong className="text-slate-900 dark:text-white">
-                                Paslon No. {selected.candidate_number} ({selected.name})
+                                No. {selected.candidate_number} ({selected.name})
                             </strong>
                             ? Pilihan bersifat final dan tidak dapat diubah setelah dikirim.
                         </p>
@@ -283,7 +375,7 @@ export default function VotePage() {
             )}
 
             <footer className="z-10 mx-auto w-full max-w-7xl px-6 py-4 text-center text-xs text-slate-500 dark:text-slate-400">
-                &copy; {new Date().getFullYear()} Panitia Pemilihan Kepala Desa Digital (E-Voting).
+                &copy; {new Date().getFullYear()} Panitia Pemilihan Digital Wilayah Bali (E-Voting).
             </footer>
         </div>
     )

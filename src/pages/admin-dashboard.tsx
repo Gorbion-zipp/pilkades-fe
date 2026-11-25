@@ -1,19 +1,25 @@
 import { CandidateModal, type Candidate } from '@/components/candidate-modal'
 import { ConfirmModal } from '@/components/confirm-modal'
 import { DatePicker } from '@/components/date-picker'
+import { ElectionManager } from '@/components/election-manager'
 import { ImportDptModal } from '@/components/import-dpt-modal'
+import { RegionManager } from '@/components/region-manager'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { useAuth } from '@/context/auth-context'
 import api, { getErrorMessage, getValidationErrors } from '@/lib/api'
+import { type RegionItem } from '@/lib/regions'
 import {
     AlertTriangle,
     BarChart3,
+    Calendar,
     CheckCircle2,
     Clock,
+    Download,
     FileSpreadsheet,
     ListChecks,
     Loader2,
     LogOut,
+    MapPin,
     Pencil,
     Plus,
     RotateCcw,
@@ -33,7 +39,14 @@ interface Voter {
     nik: string
     name: string
     birth_date: string | null
-    rt_rw: string | null
+    kabupaten_id: string | null
+    kecamatan_id: string | null
+    kelurahan_id: string | null
+    banjar_id: string | null
+    kabupaten_name: string | null
+    kecamatan_name: string | null
+    kelurahan_name: string | null
+    banjar_name: string | null
     has_voted: boolean
 }
 
@@ -44,6 +57,8 @@ interface Stats {
     total_candidates: number
 }
 
+type AdminTab = 'overview' | 'elections' | 'regions'
+
 type PendingAction =
     { type: 'delete-voter'; id: string } | { type: 'reset-voter'; id: string } | { type: 'delete-candidate'; id: string } | { type: 'reset-election' }
 
@@ -51,13 +66,16 @@ export default function AdminDashboardPage() {
     const { logout } = useAuth()
     const navigate = useNavigate()
 
+    const [activeTab, setActiveTab] = useState<AdminTab>('overview')
     const [stats, setStats] = useState<Stats | null>(null)
     const [voters, setVoters] = useState<Voter[]>([])
     const [candidates, setCandidates] = useState<Candidate[]>([])
+    const [regions, setRegions] = useState<RegionItem[]>([])
     const [loading, setLoading] = useState(true)
     const [notice, setNotice] = useState('')
     const [error, setError] = useState('')
     const [searchTerm, setSearchTerm] = useState('')
+    const [filterKabId, setFilterKabId] = useState('')
 
     const [isAddVoterOpen, setIsAddVoterOpen] = useState(false)
     const [isImportOpen, setIsImportOpen] = useState(false)
@@ -71,22 +89,32 @@ export default function AdminDashboardPage() {
         nik: '',
         name: '',
         birth_date: '',
-        rt_rw: '',
+        kabupaten_id: '',
+        kecamatan_id: '',
+        kelurahan_id: '',
+        banjar_id: '',
     })
     const [voterErrors, setVoterErrors] = useState<Record<string, string>>({})
     const [savingVoter, setSavingVoter] = useState(false)
 
-    const loadDashboard = () => {
-        return api
-            .get('/admin/dashboard')
-            .then((response) => {
-                setStats(response.data.stats)
-                setVoters(response.data.voters)
-                setCandidates(response.data.candidates)
-                setError('')
-            })
-            .catch((err) => setError(getErrorMessage(err, 'Gagal memuat data dashboard.')))
-            .finally(() => setLoading(false))
+    const loadRegions = async () => {
+        const res = await api.get('/admin/regions')
+        setRegions(res.data.regions)
+    }
+
+    const loadDashboard = async () => {
+        try {
+            const [dashRes, regRes] = await Promise.all([api.get('/admin/dashboard'), api.get('/admin/regions')])
+            setStats(dashRes.data.stats)
+            setVoters(dashRes.data.voters)
+            setCandidates(dashRes.data.candidates)
+            setRegions(regRes.data.regions)
+            setError('')
+        } catch (err) {
+            setError(getErrorMessage(err, 'Gagal memuat data dashboard.'))
+        } finally {
+            setLoading(false)
+        }
     }
 
     useEffect(() => {
@@ -109,8 +137,21 @@ export default function AdminDashboardPage() {
         setSavingVoter(true)
 
         try {
-            await api.post('/admin/voters', newVoter)
-            setNewVoter({ nik: '', name: '', birth_date: '', rt_rw: '' })
+            await api.post('/admin/voters', {
+                nik: newVoter.nik,
+                name: newVoter.name,
+                birth_date: newVoter.birth_date,
+                banjar_id: newVoter.banjar_id,
+            })
+            setNewVoter({
+                nik: '',
+                name: '',
+                birth_date: '',
+                kabupaten_id: '',
+                kecamatan_id: '',
+                kelurahan_id: '',
+                banjar_id: '',
+            })
             setIsAddVoterOpen(false)
             await loadDashboard()
             showNotice('Pemilih berhasil ditambahkan.')
@@ -149,7 +190,7 @@ export default function AdminDashboardPage() {
     }
 
     const confirmDialog = () => {
-        if (!pending) return null
+        if (!pending) return
 
         const config = {
             'delete-voter': {
@@ -177,7 +218,26 @@ export default function AdminDashboardPage() {
         return <ConfirmModal {...config} onCancel={() => setPending(null)} onConfirm={handleConfirmAction} />
     }
 
-    const filteredVoters = voters.filter((v) => v.name.toLowerCase().includes(searchTerm.toLowerCase()) || v.nik.includes(searchTerm))
+    const kabOptions = regions.filter((r) => r.level === 'kabupaten')
+    const kecOptions = newVoter.kabupaten_id
+        ? regions.filter((r) => r.level === 'kecamatan' && r.parent_id === newVoter.kabupaten_id)
+        : []
+    const kelOptions = newVoter.kecamatan_id
+        ? regions.filter((r) => r.level === 'kelurahan' && r.parent_id === newVoter.kecamatan_id)
+        : []
+    const banjarOptions = newVoter.kelurahan_id
+        ? regions.filter((r) => r.level === 'banjar' && r.parent_id === newVoter.kelurahan_id)
+        : []
+
+    const filteredVoters = voters.filter((v) => {
+        const matchesSearch =
+            v.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            v.nik.includes(searchTerm) ||
+            (v.banjar_name ?? '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+            (v.kelurahan_name ?? '').toLowerCase().includes(searchTerm.toLowerCase())
+        const matchesKab = !filterKabId || v.kabupaten_id === filterKabId
+        return matchesSearch && matchesKab
+    })
 
     return (
         <div className="relative flex min-h-screen flex-col justify-between bg-slate-50 text-slate-900 transition-colors duration-300 selection:bg-blue-500 selection:text-white dark:bg-slate-950 dark:text-slate-100">
@@ -187,8 +247,8 @@ export default function AdminDashboardPage() {
                         <Vote className="h-6 w-6" />
                     </div>
                     <div>
-                        <h1 className="text-lg leading-none font-extrabold tracking-tight text-slate-900 dark:text-white">Panel Admin PEMIRA</h1>
-                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Manajemen DPT &amp; Kontrol Pemilihan</p>
+                        <h1 className="text-lg leading-none font-extrabold tracking-tight text-slate-900 dark:text-white">Panel Admin Pilkades</h1>
+                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Manajemen Wilayah Bali, DPT &amp; Kontrol Pemilihan</p>
                     </div>
                 </div>
 
@@ -221,7 +281,7 @@ export default function AdminDashboardPage() {
                 </div>
             </header>
 
-            <main className="mx-auto w-full max-w-7xl flex-1 space-y-8 px-6 py-8">
+            <main className="mx-auto w-full max-w-7xl flex-1 space-y-6 px-6 py-8">
                 {notice && (
                     <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-xs font-medium text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">
                         {notice}
@@ -234,13 +294,64 @@ export default function AdminDashboardPage() {
                     </div>
                 )}
 
+                <div className="flex flex-wrap gap-2">
+                    <button
+                        type="button"
+                        onClick={() => setActiveTab('overview')}
+                        className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold transition ${
+                            activeTab === 'overview'
+                                ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20'
+                                : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800'
+                        }`}
+                    >
+                        <Users className="h-4 w-4" />
+                        <span>Paslon &amp; DPT</span>
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setActiveTab('elections')}
+                        className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold transition ${
+                            activeTab === 'elections'
+                                ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20'
+                                : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800'
+                        }`}
+                    >
+                        <Calendar className="h-4 w-4" />
+                        <span>Periode &amp; Pemilihan</span>
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setActiveTab('regions')}
+                        className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold transition ${
+                            activeTab === 'regions'
+                                ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20'
+                                : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800'
+                        }`}
+                    >
+                        <MapPin className="h-4 w-4" />
+                        <span>Master Wilayah Bali</span>
+                    </button>
+                </div>
+
                 {loading && (
                     <div className="flex justify-center py-16">
                         <Loader2 className="h-6 w-6 animate-spin text-blue-600 dark:text-blue-400" />
                     </div>
                 )}
 
-                {stats && (
+                {!loading && activeTab === 'elections' && (
+                    <ElectionManager
+                        regions={regions}
+                        onNotify={showNotice}
+                        onError={(msg) => setError(msg)}
+                    />
+                )}
+
+                {!loading && activeTab === 'regions' && (
+                    <RegionManager regions={regions} onChanged={loadRegions} onNotice={showNotice} />
+                )}
+
+                {!loading && activeTab === 'overview' && stats && (
                     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
                         <div className="flex items-center gap-4 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
                             <div className="rounded-2xl bg-blue-500/10 p-3 text-blue-600 dark:text-blue-400">
@@ -284,7 +395,7 @@ export default function AdminDashboardPage() {
                     </div>
                 )}
 
-                {!loading && (
+                {!loading && activeTab === 'overview' && (
                     <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
                         <div className="mb-4 flex items-center justify-between">
                             <div>
@@ -375,20 +486,33 @@ export default function AdminDashboardPage() {
                     </div>
                 )}
 
-                {!loading && (
+                {!loading && activeTab === 'overview' && (
                     <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
-                        <div className="flex flex-col items-start justify-between gap-4 border-b border-slate-200 p-6 md:flex-row md:items-center dark:border-slate-800">
+                        <div className="flex flex-col items-start justify-between gap-4 border-b border-slate-200 p-6 lg:flex-row lg:items-center dark:border-slate-800">
                             <div>
                                 <h2 className="text-lg font-bold text-slate-900 dark:text-white">Daftar Pemilih Tetap (DPT)</h2>
-                                <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">Kelola akun dan status hak pilih warga</p>
+                                <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">Kelola akun, domisili banjar, dan status hak pilih warga</p>
                             </div>
 
-                            <div className="flex w-full items-center gap-3 md:w-auto">
-                                <div className="relative flex-1 md:w-64">
-                                    <Search className="absolute top-3 left-3 h-4 w-4 text-slate-400" />
+                            <div className="flex w-full flex-wrap items-center gap-3 lg:w-auto">
+                                <select
+                                    value={filterKabId}
+                                    onChange={(e) => setFilterKabId(e.target.value)}
+                                    className="rounded-xl border border-slate-200 bg-slate-100 px-3 py-2 text-xs focus:border-blue-500 focus:outline-none dark:border-slate-800 dark:bg-slate-950"
+                                >
+                                    <option value="">Semua Kab/Kota</option>
+                                    {kabOptions.map((kab) => (
+                                        <option key={kab.id} value={kab.id}>
+                                            {kab.name}
+                                        </option>
+                                    ))}
+                                </select>
+
+                                <div className="relative flex-1 sm:w-60 sm:flex-none">
+                                    <Search className="absolute top-2.5 left-3 h-4 w-4 text-slate-400" />
                                     <input
                                         type="text"
-                                        placeholder="Cari NIK / Nama..."
+                                        placeholder="Cari NIK / Nama / Banjar..."
                                         value={searchTerm}
                                         onChange={(e) => setSearchTerm(e.target.value)}
                                         className="w-full rounded-xl border border-slate-200 bg-slate-100 py-2 pr-4 pl-9 text-xs focus:border-blue-500 focus:outline-none dark:border-slate-800 dark:bg-slate-950"
@@ -396,11 +520,36 @@ export default function AdminDashboardPage() {
                                 </div>
 
                                 <button
+                                    onClick={async () => {
+                                        try {
+                                            const qs = filterKabId ? `&kabupaten_id=${filterKabId}` : ''
+                                            const response = await api.get(`/admin/export/voters?format=xlsx${qs}`, {
+                                                responseType: 'blob',
+                                            })
+                                            const url = window.URL.createObjectURL(new Blob([response.data]))
+                                            const link = document.createElement('a')
+                                            link.href = url
+                                            link.setAttribute('download', 'laporan-dpt.xlsx')
+                                            document.body.appendChild(link)
+                                            link.click()
+                                            link.remove()
+                                            window.URL.revokeObjectURL(url)
+                                        } catch (err) {
+                                            setError(getErrorMessage(err, 'Gagal mengekspor data DPT.'))
+                                        }
+                                    }}
+                                    className="flex shrink-0 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                                >
+                                    <Download className="h-4 w-4" />
+                                    <span>Ekspor DPT (.xlsx)</span>
+                                </button>
+
+                                <button
                                     onClick={() => setIsImportOpen(true)}
                                     className="flex shrink-0 items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-2 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-400"
                                 >
                                     <FileSpreadsheet className="h-4 w-4" />
-                                    <span className="hidden lg:inline">Impor Excel</span>
+                                    <span>Impor Excel / CSV</span>
                                 </button>
 
                                 <button
@@ -408,7 +557,7 @@ export default function AdminDashboardPage() {
                                     className="flex shrink-0 items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-blue-600/20 transition hover:bg-blue-500"
                                 >
                                     <Plus className="h-4 w-4" />
-                                    <span className="hidden lg:inline">Tambah DPT</span>
+                                    <span>Tambah DPT</span>
                                 </button>
                             </div>
                         </div>
@@ -420,7 +569,7 @@ export default function AdminDashboardPage() {
                                         <th className="px-6 py-4">NIK</th>
                                         <th className="px-6 py-4">Nama Pemilih</th>
                                         <th className="px-6 py-4">Tanggal Lahir</th>
-                                        <th className="px-6 py-4">RT / RW</th>
+                                        <th className="px-6 py-4">Domisili (Banjar / Desa / Kab)</th>
                                         <th className="px-6 py-4">Status Voting</th>
                                         <th className="px-6 py-4 text-center">Aksi</th>
                                     </tr>
@@ -430,7 +579,7 @@ export default function AdminDashboardPage() {
                                         <tr>
                                             <td colSpan={6} className="px-6 py-10 text-center text-slate-500 dark:text-slate-400">
                                                 {voters.length === 0
-                                                    ? 'Belum ada data DPT. Tambahkan manual atau impor dari Excel.'
+                                                    ? 'Belum ada data DPT. Tambahkan manual atau impor dari Excel/CSV.'
                                                     : 'Tidak ada hasil yang cocok.'}
                                             </td>
                                         </tr>
@@ -452,7 +601,20 @@ export default function AdminDashboardPage() {
                                                     </span>
                                                 )}
                                             </td>
-                                            <td className="px-6 py-4">{voter.rt_rw || '-'}</td>
+                                            <td className="px-6 py-4">
+                                                {voter.banjar_name ? (
+                                                    <div>
+                                                        <p className="font-semibold text-slate-800 dark:text-slate-200">{voter.banjar_name}</p>
+                                                        <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                                                            {[voter.kelurahan_name, voter.kecamatan_name, voter.kabupaten_name]
+                                                                .filter(Boolean)
+                                                                .join(', ')}
+                                                        </p>
+                                                    </div>
+                                                ) : (
+                                                    <span className="text-slate-400">-</span>
+                                                )}
+                                            </td>
                                             <td className="px-6 py-4">
                                                 <span
                                                     className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${
@@ -492,8 +654,8 @@ export default function AdminDashboardPage() {
             </main>
 
             {isAddVoterOpen && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 px-4 backdrop-blur-sm">
-                    <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-800 dark:bg-slate-900">
+                <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-950/70 px-4 py-6 backdrop-blur-sm">
+                    <div className="my-auto w-full max-w-md rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-800 dark:bg-slate-900">
                         <h3 className="mb-4 text-lg font-bold text-slate-900 dark:text-white">Tambah DPT Baru</h3>
 
                         <form onSubmit={handleAddVoter} className="space-y-4">
@@ -539,16 +701,99 @@ export default function AdminDashboardPage() {
                                 <p className="mt-1 text-[10px] text-slate-400">Dipakai pemilih untuk login bersama NIK.</p>
                             </div>
 
-                            <div>
-                                <label className="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-400">RT / RW (Opsional)</label>
-                                <input
-                                    type="text"
-                                    placeholder="Contoh: 001/002"
-                                    value={newVoter.rt_rw}
-                                    onChange={(e) => setNewVoter({ ...newVoter, rt_rw: e.target.value })}
-                                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-xs focus:border-blue-500 focus:outline-none dark:border-slate-800 dark:bg-slate-950"
-                                />
-                                {voterErrors.rt_rw && <p className="mt-1 text-[10px] text-rose-500">{voterErrors.rt_rw}</p>}
+                            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                <div>
+                                    <label className="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-400">Kabupaten / Kota</label>
+                                    <select
+                                        required
+                                        value={newVoter.kabupaten_id}
+                                        onChange={(e) =>
+                                            setNewVoter({
+                                                ...newVoter,
+                                                kabupaten_id: e.target.value,
+                                                kecamatan_id: '',
+                                                kelurahan_id: '',
+                                                banjar_id: '',
+                                            })
+                                        }
+                                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs focus:border-blue-500 focus:outline-none dark:border-slate-800 dark:bg-slate-950"
+                                    >
+                                        <option value="">Pilih Kab/Kota</option>
+                                        {kabOptions.map((item) => (
+                                            <option key={item.id} value={item.id}>
+                                                {item.name}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label className="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-400">Kecamatan</label>
+                                    <select
+                                        required
+                                        disabled={!newVoter.kabupaten_id}
+                                        value={newVoter.kecamatan_id}
+                                        onChange={(e) =>
+                                            setNewVoter({
+                                                ...newVoter,
+                                                kecamatan_id: e.target.value,
+                                                kelurahan_id: '',
+                                                banjar_id: '',
+                                            })
+                                        }
+                                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs focus:border-blue-500 focus:outline-none disabled:opacity-50 dark:border-slate-800 dark:bg-slate-950"
+                                    >
+                                        <option value="">Pilih Kecamatan</option>
+                                        {kecOptions.map((item) => (
+                                            <option key={item.id} value={item.id}>
+                                                {item.name}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label className="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-400">Kelurahan / Desa</label>
+                                    <select
+                                        required
+                                        disabled={!newVoter.kecamatan_id}
+                                        value={newVoter.kelurahan_id}
+                                        onChange={(e) =>
+                                            setNewVoter({
+                                                ...newVoter,
+                                                kelurahan_id: e.target.value,
+                                                banjar_id: '',
+                                            })
+                                        }
+                                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs focus:border-blue-500 focus:outline-none disabled:opacity-50 dark:border-slate-800 dark:bg-slate-950"
+                                    >
+                                        <option value="">Pilih Kelurahan/Desa</option>
+                                        {kelOptions.map((item) => (
+                                            <option key={item.id} value={item.id}>
+                                                {item.name}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label className="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-400">Banjar / Lingkungan</label>
+                                    <select
+                                        required
+                                        disabled={!newVoter.kelurahan_id}
+                                        value={newVoter.banjar_id}
+                                        onChange={(e) => setNewVoter({ ...newVoter, banjar_id: e.target.value })}
+                                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs focus:border-blue-500 focus:outline-none disabled:opacity-50 dark:border-slate-800 dark:bg-slate-950"
+                                    >
+                                        <option value="">Pilih Banjar</option>
+                                        {banjarOptions.map((item) => (
+                                            <option key={item.id} value={item.id}>
+                                                {item.name}
+                                            </option>
+                                        ))}
+                                    </select>
+                                    {voterErrors.banjar_id && <p className="mt-1 text-[10px] text-rose-500">{voterErrors.banjar_id}</p>}
+                                </div>
                             </div>
 
                             <div className="flex gap-3 pt-2">

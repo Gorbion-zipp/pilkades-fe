@@ -1,13 +1,16 @@
 import { RichTextEditor } from '@/components/rich-text-editor'
 import api, { getValidationErrors } from '@/lib/api'
+import { type PositionType } from '@/lib/elections'
 import { Loader2 } from 'lucide-react'
 import { useState } from 'react'
 
 export interface Candidate {
     id: string
+    election_id?: string | null
     candidate_number: string
     name: string
-    vice_name: string
+    vice_name: string | null
+    party_name?: string | null
     vision_mission: string | null
     photo_url: string | null
     votes: number
@@ -15,19 +18,25 @@ export interface Candidate {
 
 interface CandidateModalProps {
     candidate: Candidate | null
+    electionId?: string
+    positionType?: PositionType
     onClose: () => void
     onSaved: () => void
 }
 
-export function CandidateModal({ candidate, onClose, onSaved }: CandidateModalProps) {
+export function CandidateModal({ candidate, electionId, positionType, onClose, onSaved }: CandidateModalProps) {
     const [candidateNumber, setCandidateNumber] = useState(candidate?.candidate_number ?? '')
     const [name, setName] = useState(candidate?.name ?? '')
     const [viceName, setViceName] = useState(candidate?.vice_name ?? '')
+    const [partyName, setPartyName] = useState(candidate?.party_name ?? '')
     const [visionMission, setVisionMission] = useState(candidate?.vision_mission ?? '')
     const [photo, setPhoto] = useState<File | null>(null)
 
     const [errors, setErrors] = useState<Record<string, string>>({})
     const [saving, setSaving] = useState(false)
+
+    const isBupatiOrLegacy = !positionType || positionType === 'bupati'
+    const isDprd = positionType === 'dprd_kabkota'
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
@@ -35,9 +44,18 @@ export function CandidateModal({ candidate, onClose, onSaved }: CandidateModalPr
         setSaving(true)
 
         const form = new FormData()
+        const targetElectionId = electionId ?? candidate?.election_id
+        if (targetElectionId) {
+            form.append('election_id', targetElectionId)
+        }
         form.append('candidate_number', candidateNumber)
         form.append('name', name)
-        form.append('vice_name', viceName)
+        if (isBupatiOrLegacy) {
+            form.append('vice_name', viceName)
+        }
+        if (isDprd) {
+            form.append('party_name', partyName)
+        }
         form.append('vision_mission', visionMission)
 
         if (photo) {
@@ -75,9 +93,15 @@ export function CandidateModal({ candidate, onClose, onSaved }: CandidateModalPr
                         {errors.candidate_number && <p className="mt-1 text-[10px] text-rose-500">{errors.candidate_number}</p>}
                     </div>
 
-                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <div className={`grid grid-cols-1 gap-4 ${isBupatiOrLegacy || isDprd ? 'sm:grid-cols-2' : ''}`}>
                         <div>
-                            <label className="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-400">Nama Calon Ketua</label>
+                            <label className="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-400">
+                                {positionType === 'perbekel'
+                                    ? 'Nama Calon Perbekel'
+                                    : isDprd
+                                      ? 'Nama Caleg DPRD'
+                                      : 'Nama Calon Ketua'}
+                            </label>
                             <input
                                 type="text"
                                 required
@@ -88,17 +112,34 @@ export function CandidateModal({ candidate, onClose, onSaved }: CandidateModalPr
                             {errors.name && <p className="mt-1 text-[10px] text-rose-500">{errors.name}</p>}
                         </div>
 
-                        <div>
-                            <label className="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-400">Nama Calon Wakil</label>
-                            <input
-                                type="text"
-                                required
-                                value={viceName}
-                                onChange={(e) => setViceName(e.target.value)}
-                                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-xs focus:border-blue-500 focus:outline-none dark:border-slate-800 dark:bg-slate-950"
-                            />
-                            {errors.vice_name && <p className="mt-1 text-[10px] text-rose-500">{errors.vice_name}</p>}
-                        </div>
+                        {isBupatiOrLegacy && (
+                            <div>
+                                <label className="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-400">Nama Calon Wakil</label>
+                                <input
+                                    type="text"
+                                    required
+                                    value={viceName}
+                                    onChange={(e) => setViceName(e.target.value)}
+                                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-xs focus:border-blue-500 focus:outline-none dark:border-slate-800 dark:bg-slate-950"
+                                />
+                                {errors.vice_name && <p className="mt-1 text-[10px] text-rose-500">{errors.vice_name}</p>}
+                            </div>
+                        )}
+
+                        {isDprd && (
+                            <div>
+                                <label className="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-400">Partai Pengusung</label>
+                                <input
+                                    type="text"
+                                    required
+                                    placeholder="Contoh: Partai Nusantara"
+                                    value={partyName}
+                                    onChange={(e) => setPartyName(e.target.value)}
+                                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-xs focus:border-blue-500 focus:outline-none dark:border-slate-800 dark:bg-slate-950"
+                                />
+                                {errors.party_name && <p className="mt-1 text-[10px] text-rose-500">{errors.party_name}</p>}
+                            </div>
+                        )}
                     </div>
 
                     <div>

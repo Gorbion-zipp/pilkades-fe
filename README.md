@@ -1,13 +1,13 @@
-# Pemira Web (Frontend)
+# Pilkades Web (Frontend)
 
 Single Page Application React untuk sistem E-Voting Pilkades. Berkomunikasi dengan
-`pemira-api` lewat REST API dan JWT. Tidak ada kode server di project ini.
+`pilkades-api` lewat REST API dan JWT. Tidak ada kode server di project ini.
 
 ## Menjalankan
 
 ```bash
 npm install
-cp .env.example .env     # arahkan VITE_API_URL ke pemira-api
+cp .env.example .env     # arahkan VITE_API_URL ke pilkades-api
 npm run dev
 ```
 

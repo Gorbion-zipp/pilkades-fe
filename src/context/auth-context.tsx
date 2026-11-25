@@ -1,14 +1,21 @@
 import api, { TOKEN_KEY } from '@/lib/api'
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 
-const USER_KEY = 'pemira_user'
+const USER_KEY = 'pilkades_user'
 
 export interface Voter {
     id: string
     nik: string
     name: string
     birth_date: string | null
-    rt_rw: string | null
+    kabupaten_id: string | null
+    kecamatan_id: string | null
+    kelurahan_id: string | null
+    banjar_id: string | null
+    kabupaten_name: string | null
+    kecamatan_name: string | null
+    kelurahan_name: string | null
+    banjar_name: string | null
     has_voted: boolean
 }
 

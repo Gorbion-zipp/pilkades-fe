@@ -13,14 +13,28 @@ interface ValidRow {
     nik: string
     name: string
     birth_date: string
-    rt_rw: string | null
+    kabupaten_id: string
+    kecamatan_id: string
+    kelurahan_id: string
+    banjar_id: string
+}
+
+interface PreviewRow {
+    line: number
+    nik: string
+    name: string
+    birth_date: string
+    kabupaten_name: string
+    kecamatan_name: string
+    kelurahan_name: string
+    banjar_name: string
 }
 
 interface PreviewResult {
     total_read: number
     total_valid: number
     valid_rows: ValidRow[]
-    preview: { line: number; nik: string; name: string; birth_date: string; rt_rw: string }[]
+    preview: PreviewRow[]
     invalid: RejectedRow[]
     duplicate_in_file: RejectedRow[]
     duplicate_in_database: RejectedRow[]
@@ -41,18 +55,18 @@ export function ImportDptModal({ onClose, onImported }: ImportDptModalProps) {
 
     const totalRejected = result ? result.invalid.length + result.duplicate_in_file.length + result.duplicate_in_database.length : 0
 
-    const handleDownloadTemplate = async () => {
+    const handleDownloadTemplate = async (format: 'xlsx' | 'csv') => {
         const baseUrl = import.meta.env.VITE_API_URL ?? 'http://localhost:8000/api/v1'
         const token = localStorage.getItem(TOKEN_KEY)
 
-        const response = await fetch(`${baseUrl}/admin/voters/template`, {
+        const response = await fetch(`${baseUrl}/admin/voters/template?format=${format}`, {
             headers: { Authorization: `Bearer ${token}` },
         })
 
         const blob = await response.blob()
         const link = document.createElement('a')
         link.href = URL.createObjectURL(blob)
-        link.download = 'template-dpt-pemira.csv'
+        link.download = `template-dpt-pilkades.${format}`
         link.click()
         URL.revokeObjectURL(link.href)
     }
@@ -107,16 +121,16 @@ export function ImportDptModal({ onClose, onImported }: ImportDptModalProps) {
 
     return (
         <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/70 px-4 py-8 backdrop-blur-sm">
-            <div className="my-auto w-full max-w-3xl rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-800 dark:bg-slate-900">
+            <div className="my-auto w-full max-w-4xl rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-800 dark:bg-slate-900">
                 <div className="mb-5 flex items-start justify-between gap-4">
                     <div className="flex items-center gap-3">
                         <div className="rounded-2xl bg-emerald-500/10 p-3 text-emerald-600 dark:text-emerald-400">
                             <FileSpreadsheet className="h-6 w-6" />
                         </div>
                         <div>
-                            <h3 className="text-base font-bold text-slate-900 dark:text-white">Impor DPT dari Excel</h3>
+                            <h3 className="text-base font-bold text-slate-900 dark:text-white">Impor DPT (Excel &amp; CSV)</h3>
                             <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                                {result ? 'Periksa hasil verifikasi sebelum data disimpan' : 'Unggah berkas untuk diverifikasi lebih dulu'}
+                                {result ? 'Periksa hasil verifikasi sebelum data disimpan' : 'Unggah berkas .xlsx, .xls, atau .csv untuk diverifikasi'}
                             </p>
                         </div>
                     </div>
@@ -141,37 +155,52 @@ export function ImportDptModal({ onClose, onImported }: ImportDptModalProps) {
                         <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950">
                             <p className="text-xs font-semibold text-slate-700 dark:text-slate-200">Langkah impor</p>
                             <ol className="mt-2 list-outside list-decimal space-y-1 pl-4 text-[11px] leading-relaxed text-slate-600 dark:text-slate-400">
-                                <li>Unduh template, lalu isi data pemilih di Excel.</li>
+                                <li>Unduh template Excel (.xlsx) atau CSV (.csv), lalu isi data pemilih.</li>
                                 <li>
-                                    Format kolom <span className="font-mono font-semibold">nik</span> sebagai{' '}
-                                    <span className="font-semibold">Teks</span> agar 16 digit tidak berubah jadi notasi ilmiah.
+                                    Pastikan kolom wilayah (<span className="font-mono font-semibold">kabupaten, kecamatan, kelurahan, banjar</span>)
+                                    sesuai dengan Data Master Wilayah Bali.
                                 </li>
                                 <li>
-                                    Simpan sebagai <span className="font-semibold">CSV UTF-8 (Comma delimited)</span>, lalu unggah di bawah.
+                                    Simpan kolom <span className="font-mono font-semibold">nik</span> sebagai format{' '}
+                                    <span className="font-semibold">Teks</span> agar 16 digit tidak berubah jadi notasi ilmiah.
                                 </li>
                             </ol>
 
-                            <button
-                                type="button"
-                                onClick={handleDownloadTemplate}
-                                className="mt-3 inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
-                            >
-                                <Download className="h-4 w-4" />
-                                Unduh Template
-                            </button>
+                            <div className="mt-3 flex flex-wrap gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => handleDownloadTemplate('xlsx')}
+                                    className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-2 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300 dark:hover:bg-emerald-900/50"
+                                >
+                                    <Download className="h-4 w-4" />
+                                    Unduh Template Excel (.xlsx)
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => handleDownloadTemplate('csv')}
+                                    className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
+                                >
+                                    <Download className="h-4 w-4" />
+                                    Unduh Template CSV (.csv)
+                                </button>
+                            </div>
                         </div>
 
                         <div>
-                            <label className="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-400">Berkas CSV</label>
+                            <label className="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-400">
+                                Berkas Excel (.xlsx / .xls) atau CSV (.csv)
+                            </label>
                             <input
                                 ref={fileInputRef}
                                 type="file"
-                                accept=".csv,text/csv,text/plain"
+                                accept=".xlsx,.xls,.csv,text/csv,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
                                 required
                                 onChange={(e) => setFile(e.target.files?.[0] ?? null)}
                                 className="w-full cursor-pointer rounded-xl border border-slate-200 bg-slate-50 px-4 py-2 text-xs file:mr-4 file:rounded-lg file:border-0 file:bg-blue-600 file:px-3 file:py-1 file:text-xs file:font-semibold file:text-white hover:file:bg-blue-500 focus:outline-none dark:border-slate-800 dark:bg-slate-950"
                             />
-                            <p className="mt-1 text-[10px] text-slate-400">Kolom: nik, nama, tanggal_lahir, rt_rw. Maksimal 5MB.</p>
+                            <p className="mt-1 text-[10px] text-slate-400">
+                                Kolom wajib: nik, nama, tanggal_lahir, kabupaten, kecamatan, kelurahan, banjar. Maksimal 5MB.
+                            </p>
                         </div>
 
                         <div className="flex gap-3 pt-2">
@@ -263,7 +292,7 @@ export function ImportDptModal({ onClose, onImported }: ImportDptModalProps) {
                                                 <th className="px-4 py-2.5">NIK</th>
                                                 <th className="px-4 py-2.5">Nama</th>
                                                 <th className="px-4 py-2.5">Tgl Lahir</th>
-                                                <th className="px-4 py-2.5">RT/RW</th>
+                                                <th className="px-4 py-2.5">Wilayah (Banjar, Desa, Kec, Kab)</th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
@@ -273,7 +302,9 @@ export function ImportDptModal({ onClose, onImported }: ImportDptModalProps) {
                                                     <td className="px-4 py-2.5 font-mono font-medium">{row.nik}</td>
                                                     <td className="px-4 py-2.5 font-bold text-slate-900 dark:text-white">{row.name}</td>
                                                     <td className="px-4 py-2.5 font-mono">{row.birth_date}</td>
-                                                    <td className="px-4 py-2.5">{row.rt_rw}</td>
+                                                    <td className="px-4 py-2.5 text-[11px] text-slate-600 dark:text-slate-300">
+                                                        {row.banjar_name}, {row.kelurahan_name}, {row.kecamatan_name}, {row.kabupaten_name}
+                                                    </td>
                                                 </tr>
                                             ))}
                                         </tbody>
@@ -287,7 +318,7 @@ export function ImportDptModal({ onClose, onImported }: ImportDptModalProps) {
                                 key: 'invalid',
                                 rows: result.invalid,
                                 title: 'Data Tidak Valid',
-                                hint: 'Perbaiki di berkas Excel lalu unggah ulang.',
+                                hint: 'Perbaiki di berkas Excel/CSV lalu unggah ulang.',
                                 icon: <XCircle className="h-4 w-4 text-rose-600 dark:text-rose-400" />,
                             },
                             {

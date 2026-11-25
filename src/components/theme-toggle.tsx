@@ -2,7 +2,7 @@ import { Moon, Sun } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
 function getInitialTheme() {
-    const saved = localStorage.getItem('pemira_theme')
+    const saved = localStorage.getItem('pilkades_theme')
 
     if (saved === 'dark' || saved === 'light') {
         return saved
@@ -16,7 +16,7 @@ export function ThemeToggle() {
 
     useEffect(() => {
         document.documentElement.classList.toggle('dark', theme === 'dark')
-        localStorage.setItem('pemira_theme', theme)
+        localStorage.setItem('pilkades_theme', theme)
     }, [theme])
 
     return (
